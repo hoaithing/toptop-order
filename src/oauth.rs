@@ -2,7 +2,6 @@ use crate::error::AppError;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
 use tracing::{debug, info};
 
 /// TikTok Shop OAuth client
@@ -11,7 +10,6 @@ pub struct TikTokShopOAuth {
     app_key: String,
     app_secret: String,
     http_client: Client,
-    state_storage: std::sync::Arc<Mutex<HashMap<String, chrono::DateTime<chrono::Utc>>>>,
 }
 
 /// Authorization request parameters
@@ -64,7 +62,6 @@ impl TikTokShopOAuth {
             app_key,
             app_secret,
             http_client: Client::new(),
-            state_storage: std::sync::Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

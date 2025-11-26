@@ -1,23 +1,18 @@
 use crate::error::AppError;
-use crate::oauth::AuthorizedShop;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
-/// Token information with expiry tracking
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TokenInfo {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at: DateTime<Utc>,
     pub refresh_token_expires_at: DateTime<Utc>,
-    pub shops: Vec<AuthorizedShop>,
 }
 
-/// File-based token storage
-/// Persists tokens to disk for recovery across restarts
 pub struct TokenStorage {
     token: Option<TokenInfo>,
     storage_path: PathBuf,
@@ -25,13 +20,9 @@ pub struct TokenStorage {
 
 impl TokenStorage {
     const DEFAULT_STORAGE_FILE: &'static str = "tiktok_tokens.json";
-
-    /// Create a new token storage with default file path
     pub fn new() -> Self {
         Self::with_path(Self::DEFAULT_STORAGE_FILE)
     }
-
-    /// Create a new token storage with custom file path
     pub fn with_path<P: AsRef<Path>>(path: P) -> Self {
         let storage_path = PathBuf::from(path.as_ref());
         let token = Self::load_from_file(&storage_path).ok();
@@ -42,7 +33,6 @@ impl TokenStorage {
         }
     }
 
-    /// Load token from file
     fn load_from_file(path: &Path) -> Result<TokenInfo, AppError> {
         if !path.exists() {
             return Err(AppError::ConfigError("Token file not found".to_string()));
