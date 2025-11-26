@@ -1,0 +1,5 @@
+/target
+.idea/
+.env
+tiktok_tokens.json
+token.json
