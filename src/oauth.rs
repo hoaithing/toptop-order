@@ -4,16 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tracing::{debug, info};
-use url::Url;
 
 /// TikTok Shop OAuth client
 #[derive(Clone)]
 pub struct TikTokShopOAuth {
     app_key: String,
     app_secret: String,
-    redirect_uri: String,
     http_client: Client,
-    /// Store CSRF state tokens
     state_storage: std::sync::Arc<Mutex<HashMap<String, chrono::DateTime<chrono::Utc>>>>,
 }
 
@@ -59,75 +56,15 @@ struct ApiResponse<T> {
 }
 
 impl TikTokShopOAuth {
-    // TikTok Shop API endpoints
-    const AUTHORIZATION_URL: &'static str = "https://services.tiktokshop.com/open/authorize";
     const TOKEN_URL: &'static str = "https://auth.tiktok-shops.com/api/v2/token/get";
     const REFRESH_TOKEN_URL: &'static str = "https://auth.tiktok-shops.com/api/v2/token/refresh";
-    const AUTHORIZED_SHOPS_URL: &'static str = "https://auth.tiktok-shops.com/api/v2/shops/get_authorized";
 
-    pub fn new(app_key: String, app_secret: String, redirect_uri: String) -> Self {
+    pub fn new(app_key: String, app_secret: String) -> Self {
         Self {
             app_key,
             app_secret,
-            redirect_uri,
             http_client: Client::new(),
             state_storage: std::sync::Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    /// Generate a random state for CSRF protection
-    fn generate_state(&self) -> String {
-        use rand::Rng;
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        let mut rng = rand::thread_rng();
-        
-        (0..32)
-            .map(|_| {
-                let idx = rng.gen_range(0..CHARSET.len());
-                CHARSET[idx] as char
-            })
-            .collect()
-    }
-
-    /// Build authorization URL for redirecting users
-    pub fn get_authorization_url(&self) -> Result<String, AppError> {
-        let state = self.generate_state();
-        
-        // Store state with expiration (10 minutes)
-        {
-            let mut storage = self.state_storage.lock().unwrap();
-            let expiry = chrono::Utc::now() + chrono::Duration::minutes(10);
-            storage.insert(state.clone(), expiry);
-            
-            // Clean up expired states
-            let now = chrono::Utc::now();
-            storage.retain(|_, expiry| *expiry > now);
-        }
-
-        let mut url = Url::parse(Self::AUTHORIZATION_URL)
-            .map_err(|_| AppError::InvalidUrl)?;
-
-        url.query_pairs_mut()
-            .append_pair("app_key", &self.app_key)
-            .append_pair("state", &state)
-            .append_pair("redirect_uri", &self.redirect_uri);
-
-        debug!("Generated authorization URL: {}", url);
-        Ok(url.to_string())
-    }
-
-    /// Verify the state parameter from callback
-    pub fn verify_state(&self, state: &str) -> bool {
-        let mut storage = self.state_storage.lock().unwrap();
-        
-        if let Some(expiry) = storage.get(state) {
-            let valid = *expiry > chrono::Utc::now();
-            if valid {
-                storage.remove(state); // Single use
-            }
-            valid
-        } else {
-            false
         }
     }
 
@@ -224,93 +161,4 @@ impl TikTokShopOAuth {
             .ok_or_else(|| AppError::ApiError(api_response.code, "No token data in response".to_string()))
     }
 
-    /// Get list of authorized shops
-    pub async fn get_authorized_shops(&self, access_token: &str) -> Result<Vec<AuthorizedShop>, AppError> {
-        info!("Fetching authorized shops");
-
-        let mut params = HashMap::new();
-        params.insert("app_key", self.app_key.as_str());
-        params.insert("app_secret", self.app_secret.as_str());
-        params.insert("access_token", access_token);
-
-        let response = self
-            .http_client
-            .get(Self::AUTHORIZED_SHOPS_URL)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .query(&params)
-            .send()
-            .await
-            .map_err(|e| AppError::HttpError(e.to_string()))?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| AppError::HttpError(e.to_string()))?;
-
-        debug!("Authorized shops response status: {}, body: {}", status, body);
-
-        if !status.is_success() {
-            return Err(AppError::HttpError(format!("Failed to get shops: {}", body)));
-        }
-
-        #[derive(Deserialize)]
-        struct ShopsData {
-            shop_list: Vec<AuthorizedShop>,
-        }
-
-        let api_response: ApiResponse<ShopsData> = serde_json::from_str(&body)
-            .map_err(|e| AppError::ParseError(format!("Failed to parse shops response: {}", e)))?;
-
-        if api_response.code != 0 {
-            return Err(AppError::ApiError(
-                api_response.code,
-                api_response.message,
-            ));
-        }
-
-        let shops = api_response
-            .data
-            .map(|d| d.shop_list)
-            .unwrap_or_default();
-
-        Ok(shops)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_generate_state() {
-        let oauth = TikTokShopOAuth::new(
-            "test_key".to_string(),
-            "test_secret".to_string(),
-            "http://localhost:3000/callback".to_string(),
-        );
-
-        let state1 = oauth.generate_state();
-        let state2 = oauth.generate_state();
-
-        assert_eq!(state1.len(), 32);
-        assert_eq!(state2.len(), 32);
-        assert_ne!(state1, state2);
-    }
-
-    #[test]
-    fn test_authorization_url_format() {
-        let oauth = TikTokShopOAuth::new(
-            "test_app_key".to_string(),
-            "test_secret".to_string(),
-            "http://localhost:3000/callback".to_string(),
-        );
-
-        let url = oauth.get_authorization_url().unwrap();
-        
-        assert!(url.starts_with(TikTokShopOAuth::AUTHORIZATION_URL));
-        assert!(url.contains("app_key=test_app_key"));
-        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback"));
-        assert!(url.contains("state="));
-    }
 }

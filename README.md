@@ -1,418 +1,273 @@
-# TikTok Shop OAuth Implementation in Rust
+# TikTok Shop Order API Client
 
-A complete implementation of the TikTok Shop authorization workflow using Rust, Axum, and async/await patterns.
+A Rust CLI application for fetching TikTok Shop orders using the TikTok Shop API.
 
-## Features
+## ✅ Completed Features
 
-- ✅ **OAuth 2.0 Authorization Code Flow** - Full implementation with CSRF protection
-- ✅ **Access Token Management** - Automatic token storage and validation
-- ✅ **Token Refresh** - Refresh expired access tokens using refresh tokens
-- ✅ **Authorized Shops** - Retrieve list of authorized TikTok Shop stores
-- ✅ **Web Interface** - Simple HTML interface for testing the OAuth flow
-- ✅ **Type-Safe** - Full Rust type safety with comprehensive error handling
-- ✅ **Production-Ready** - Structured code with proper separation of concerns
+- ✅ File-based token loading from `token.json`
+- ✅ Shop cipher and shop ID configuration via `.env`
+- ✅ Signed API requests with HMAC-SHA256
+- ✅ Complete order data structures
+- ✅ CLI interface for fetching orders
+- ✅ Token expiration checking
+- ✅ Request headers (`x-tts-access-token`, `Content-Type`)
+- ✅ Removed web server and OAuth flow (simplified to CLI only)
 
-## Architecture
+## Quick Start
+
+### 1. Setup Environment Variables
+
+Create/edit `.env`:
+```env
+TIKTOK_APP_KEY=your_app_key
+TIKTOK_APP_SECRET=your_app_secret
+TIKTOK_SHOP_CIPHER=your_shop_cipher
+TIKTOK_SHOP_ID=your_shop_id
+TIKTOK_TOKEN_FILE=token.json
+```
+
+### 2. Provide Token File
+
+Place your `token.json` file in the project root:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "access_token": "ROW_...",
+    "access_token_expire_in": 1764759323,
+    "refresh_token": "ROW_...",
+    "refresh_token_expire_in": 4875145688,
+    "seller_name": "Your Shop Name",
+    "seller_base_region": "VN",
+    "granted_scopes": ["seller.order.info", "seller.authorization.info"]
+  }
+}
+```
+
+### 3. Run the CLI
+
+```bash
+cargo run --bin cli
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `TIKTOK_APP_KEY` | Your TikTok Shop app key | Yes |
+| `TIKTOK_APP_SECRET` | Your TikTok Shop app secret | Yes |
+| `TIKTOK_SHOP_CIPHER` | Shop cipher for API requests | Optional* |
+| `TIKTOK_SHOP_ID` | Shop ID | Optional |
+| `TIKTOK_TOKEN_FILE` | Path to token JSON file | No (default: token.json) |
+
+*Note: shop_cipher may be required for some API endpoints
+
+## Project Structure
 
 ```
 src/
-├── main.rs       # Application entry point and route handlers
-├── oauth.rs      # TikTok Shop OAuth client implementation
-├── config.rs     # Configuration management
-├── error.rs      # Error types and handling
-└── storage.rs    # Token storage (in-memory, extend for persistence)
+├── bin/
+│   └── cli.rs              # Main CLI application (simplified entry point)
+├── config.rs               # Configuration from environment variables
+├── error.rs                # Error types
+├── order.rs                # Order API client and data structures
+├── requests.rs             # Signed API request client
+├── storage.rs              # Token persistence (file-based)
+└── lib.rs                  # Library exports
+
+examples/
+├── check_token.rs          # Check token expiration
+├── debug_signature.rs      # Debug signature generation
+└── test_*.rs               # Various API test utilities
 ```
 
-## Prerequisites
+## API Implementation
 
-- Rust 1.70 or later
-- TikTok Shop Partner account
-- Registered app in TikTok Shop Partner Center
+### Signature Generation
 
-## Getting Started
+```rust
+sign_string = app_key + timestamp + access_token + shop_cipher + path + body
+signature = HMAC-SHA256(app_secret, sign_string)
+```
 
-### 1. Register Your Application
+### Request Format
 
-1. Go to [TikTok Shop Partner Center](https://partner.tiktokshop.com/)
-2. Sign up and complete the developer onboarding
-3. Create a new app (Public App recommended)
-4. Enable API access
-5. Set your redirect URI (e.g., `http://localhost:3000/auth/callback`)
-6. Note down your **App Key** and **App Secret**
+**POST /api/orders/search**
 
-### 2. Setup Environment
+Query Parameters:
+- `app_key`
+- `timestamp`
+- `access_token`
+- `shop_cipher` (optional)
+- `sign` (HMAC-SHA256 signature)
 
-Clone or create the project:
+Headers:
+- `Content-Type: application/json`
+- `x-tts-access-token: {access_token}`
 
+Request Body:
+```json
+{
+  "page_size": 10,
+  "order_status": 111,
+  "create_time_ge": 1234567890,
+  "create_time_lt": 1234567890
+}
+```
+
+## Order Data Structures
+
+### GetOrderListRequest
+
+Builder pattern for constructing order list requests:
+
+```rust
+let request = GetOrderListRequest::new()
+    .with_status(OrderStatus::AwaitingShipment)
+    .with_page_size(20)
+    .with_create_time_range(start_timestamp, end_timestamp)
+    .sort_by("create_time".to_string(), SortOrder::Descending);
+```
+
+### Order Status Codes
+
+| Code | Status |
+|------|--------|
+| 100 | Unpaid |
+| 111 | Awaiting Shipment |
+| 112 | Awaiting Collection |
+| 114 | Partially Shipped |
+| 121 | In Transit |
+| 122 | Delivered |
+| 130 | Completed |
+| 140 | Cancelled |
+
+### Order Response Fields
+
+- `id` - Order ID
+- `status` - Order status code
+- `create_time` / `update_time` - Unix timestamps
+- `payment` - Payment info (total, currency, fees)
+- `recipient_address` - Shipping address
+- `item_list` - List of ordered items
+- `buyer` - Buyer information
+- `delivery` - Tracking information
+
+## Development Commands
+
+### Build
 ```bash
-mkdir tiktok-shop-oauth
-cd tiktok-shop-oauth
-```
-
-Create a `.env` file from the example:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and add your credentials:
-
-```env
-TIKTOK_APP_KEY=your_app_key_here
-TIKTOK_APP_SECRET=your_app_secret_here
-TIKTOK_REDIRECT_URI=http://localhost:3000/auth/callback
-HOST=127.0.0.1
-PORT=3000
-```
-
-### 3. Build and Run
-
-```bash
-# Build the project
 cargo build
-
-# Run in development mode
-cargo run
-
-# Run with release optimizations
-cargo run --release
+cargo build --release
 ```
 
-The server will start at `http://localhost:3000`
-
-## Usage
-
-### Web Interface
-
-1. Open your browser and go to `http://localhost:3000`
-2. Click "Authorize with TikTok Shop"
-3. Log in with your TikTok Shop seller account
-4. Authorize the application
-5. You'll be redirected back with your access tokens and shop information
-
-### API Endpoints
-
-#### `GET /`
-Home page with authorization button
-
-#### `GET /auth/tiktok`
-Initiates the OAuth flow by redirecting to TikTok Shop authorization page
-
-#### `GET /auth/callback`
-OAuth callback endpoint that receives the authorization code and exchanges it for tokens
-
-**Query Parameters:**
-- `code` - Authorization code from TikTok
-- `state` - CSRF token for validation
-
-#### `GET /auth/status`
-Check current authorization status
-
-**Response:**
-```json
-{
-  "authorized": true,
-  "access_token_expired": false,
-  "refresh_token_expired": false,
-  "expires_at": "2025-11-27T10:30:00Z",
-  "shops": [
-    {
-      "shop_id": "123456",
-      "shop_name": "My Shop",
-      "region": "US",
-      "cipher": "shop_cipher_string"
-    }
-  ]
-}
+### Run
+```bash
+cargo run --bin cli
 ```
 
-#### `GET /auth/refresh`
-Refresh the access token using the stored refresh token
-
-**Response:**
-```json
-{
-  "message": "Token refreshed successfully",
-  "expires_in": 86400
-}
-```
-
-## OAuth Flow Diagram
-
-```
-┌─────────┐                                    ┌──────────────┐
-│ Browser │                                    │  Your App    │
-└────┬────┘                                    └──────┬───────┘
-     │                                                 │
-     │  1. Click "Authorize"                          │
-     ├────────────────────────────────────────────────>
-     │                                                 │
-     │  2. Redirect to TikTok Shop                    │
-     │     with app_key, state, redirect_uri          │
-     <─────────────────────────────────────────────────┤
-     │                                                 │
-┌────▼────┐                                           │
-│ TikTok  │                                           │
-│  Shop   │                                           │
-└────┬────┘                                           │
-     │                                                 │
-     │  3. User logs in and authorizes                │
-     │                                                 │
-     │  4. Redirect to callback with code & state     │
-     ├────────────────────────────────────────────────>
-     │                                                 │
-     │                                                 │  5. Exchange code
-     │                                                 │     for access token
-     │                                                 ├──────────────┐
-     │                                                 │              │
-     │                                                 <──────────────┘
-     │                                                 │
-     │  6. Display success with tokens                │
-     <─────────────────────────────────────────────────┤
-```
-
-## Code Structure
-
-### OAuth Client (`src/oauth.rs`)
-
-The `TikTokShopOAuth` struct handles all OAuth-related operations:
-
-```rust
-let oauth = TikTokShopOAuth::new(app_key, app_secret, redirect_uri);
-
-// Get authorization URL
-let auth_url = oauth.get_authorization_url()?;
-
-// Exchange code for token
-let token = oauth.exchange_code_for_token(&code).await?;
-
-// Get authorized shops
-let shops = oauth.get_authorized_shops(&token.access_token).await?;
-
-// Refresh token
-let new_token = oauth.refresh_access_token(&refresh_token).await?;
-```
-
-### Token Storage (`src/storage.rs`)
-
-In-memory token storage with expiry tracking:
-
-```rust
-let mut storage = TokenStorage::new();
-storage.store(token_info);
-
-if storage.is_access_token_valid() {
-    // Use the token
-} else {
-    // Refresh the token
-}
-```
-
-### Error Handling (`src/error.rs`)
-
-Comprehensive error types with automatic HTTP response conversion:
-
-```rust
-pub enum AppError {
-    InvalidState,
-    NoTokenStored,
-    TokenExchangeFailed(String),
-    ApiError(i32, String),
-    // ... more error types
-}
-```
-
-## TikTok Shop API Endpoints
-
-The implementation uses the following TikTok Shop API endpoints:
-
-- **Authorization**: `https://services.tiktokshop.com/open/authorize`
-- **Token Exchange**: `https://auth.tiktok-shops.com/api/v2/token/get`
-- **Token Refresh**: `https://auth.tiktok-shops.com/api/v2/token/refresh`
-- **Get Shops**: `https://auth.tiktok-shops.com/api/v2/shops/get_authorized`
-
-## Security Features
-
-### CSRF Protection
-- Generates random state tokens for each authorization request
-- Validates state on callback to prevent CSRF attacks
-- Stores states with 10-minute expiration
-- Single-use state tokens
-
-### Token Security
-- Tokens stored server-side only
-- Automatic expiry tracking
-- Secure token refresh mechanism
-
-## Production Considerations
-
-### Token Storage
-The current implementation uses in-memory storage. For production:
-
-1. **Database Storage**: Store tokens in PostgreSQL/MySQL:
-   ```rust
-   // Example with SQLx
-   sqlx::query!(
-       "INSERT INTO tokens (access_token, refresh_token, expires_at) VALUES ($1, $2, $3)",
-       token.access_token,
-       token.refresh_token,
-       token.expires_at
-   )
-   .execute(&pool)
-   .await?;
-   ```
-
-2. **Redis Cache**: For fast access and automatic expiry:
-   ```rust
-   redis::cmd("SETEX")
-       .arg(format!("token:{}", shop_id))
-       .arg(token.expires_in)
-       .arg(token.access_token)
-       .query_async(&mut con)
-       .await?;
-   ```
-
-### Encryption
-Encrypt sensitive tokens at rest:
-
-```rust
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use aes_gcm::aead::{Aead, NewAead};
-
-// Encrypt token before storage
-let encrypted = cipher.encrypt(nonce, token.as_bytes())?;
-```
-
-### HTTPS
-Always use HTTPS in production:
-- Update redirect URI to use `https://`
-- Use proper TLS certificates
-- Consider using a reverse proxy (nginx, Caddy)
-
-### Environment Variables
-Never commit `.env` files. Use:
-- Docker secrets
-- Kubernetes secrets
-- AWS Secrets Manager
-- HashiCorp Vault
-
-## Testing
-
-Run the included tests:
-
+### Test
 ```bash
 cargo test
 ```
 
-## Extending the Implementation
+### Debug Tools
 
-### Add Database Persistence
-
-```rust
-// src/storage.rs
-use sqlx::PgPool;
-
-pub struct DatabaseTokenStorage {
-    pool: PgPool,
-}
-
-impl DatabaseTokenStorage {
-    pub async fn store(&self, shop_id: &str, token: TokenInfo) -> Result<()> {
-        sqlx::query!(
-            "INSERT INTO shop_tokens (shop_id, access_token, refresh_token, expires_at)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (shop_id) DO UPDATE SET
-                access_token = $2,
-                refresh_token = $3,
-                expires_at = $4",
-            shop_id,
-            token.access_token,
-            token.refresh_token,
-            token.expires_at
-        )
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-}
+Check token expiration:
+```bash
+cargo run --example check_token
 ```
 
-### Add Webhook Support
+Debug signature formats:
+```bash
+cargo run --example debug_signature
+```
 
-```rust
-// src/webhook.rs
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+## ⚠️ Current Known Issue
 
-pub fn verify_webhook_signature(
-    body: &[u8],
-    signature: &str,
-    secret: &str,
-) -> bool {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
-    mac.update(body);
-    let result = mac.finalize();
-    let expected = hex::encode(result.into_bytes());
-    expected == signature
-}
+**API Signature Validation Error (Code 106001)**
+
+The TikTok Shop API returns "Invalid credentials. The 'sign' query parameter is invalid" for all requests.
+
+**What's Been Tested:**
+- ✅ Token loading and parsing
+- ✅ Token expiration checking
+- ✅ Request structure and headers
+- ✅ Multiple signature algorithms
+- ❌ Signature validation with TikTok API
+
+**Possible Causes:**
+1. Signature algorithm doesn't match TikTok's exact requirements
+2. Missing required parameters in signature string
+3. API version mismatch (using 202309)
+4. Parameter encoding issues
+
+**Next Steps:**
+1. Verify exact signature format from official TikTok Shop API documentation
+2. Check if API version or endpoint has changed
+3. Contact TikTok Shop support with error request_id
+4. Compare with working implementation if available
+
+## Architecture Decisions
+
+### Why CLI Instead of Web Server?
+
+The original implementation included a web server for OAuth flow. We simplified this because:
+- Token can be obtained externally and provided via `token.json`
+- No need for callback handling
+- Simpler deployment and usage
+- Focused on order fetching functionality
+
+### File-Based Token Storage
+
+Tokens are saved to `tiktok_tokens.json` (if using the conversion tool) or loaded directly from `token.json`. This allows:
+- Persistence across restarts
+- Easy token management
+- No database required
+
+## Dependencies
+
+```toml
+[dependencies]
+reqwest = "0.11"        # HTTP client
+tokio = "1"             # Async runtime
+serde = "1.0"           # Serialization
+serde_json = "1.0"      # JSON
+hmac = "0.12"           # HMAC
+sha2 = "0.10"           # SHA256
+hex = "0.4"             # Hex encoding
+chrono = "0.4"          # Timestamps
+tracing = "0.1"         # Logging
+dotenvy = "0.15"        # .env loading
 ```
 
 ## Troubleshooting
 
-### "Authorization code is expired"
-- Authorization codes are single-use and expire quickly (usually 10 minutes)
-- Don't refresh the callback page
-- Complete the token exchange immediately after receiving the code
+### Token Expired
+Run `cargo run --example check_token` to verify token expiration.
 
-### "Invalid redirect_uri"
-- Ensure the redirect URI in `.env` exactly matches the one registered in TikTok Shop Partner Center
-- Include the protocol (`http://` or `https://`)
-- Check for trailing slashes
+### Missing Configuration
+Ensure all required variables are set in `.env`.
 
-### "Invalid state parameter"
-- CSRF state tokens expire after 10 minutes
-- Don't share authorization URLs
-- Complete the flow quickly after initiating
-
-### Token refresh fails
-- Check if refresh token has expired (typically 30 days)
-- Verify app credentials are correct
-- Ensure you're using the latest refresh token (they rotate on refresh)
-
-## Dependencies
-
-- `axum` - Web framework
-- `tokio` - Async runtime
-- `reqwest` - HTTP client
-- `serde` - Serialization
-- `chrono` - Date/time handling
-- `rand` - Random generation for CSRF tokens
-
-## Resources
-
-- [TikTok Shop Partner Center](https://partner.tiktokshop.com/)
-- [TikTok Shop API Documentation](https://partner.tiktokshop.com/docv2/page/authorization-overview-202407)
-- [OAuth 2.0 RFC](https://datatracker.ietf.org/doc/html/rfc6749)
-
-## License
-
-MIT License - feel free to use this implementation in your projects.
+### Signature Errors
+This is a known issue - see "Current Known Issue" section above.
 
 ## Contributing
 
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
+When contributing, please:
+1. Run `cargo fmt` before committing
+2. Ensure `cargo test` passes
+3. Update documentation for new features
 
-## Support
+## Resources
 
-For issues related to:
-- **This implementation**: Open an issue in this repository
-- **TikTok Shop API**: Contact TikTok Shop Partner Support
-- **Your TikTok Shop account**: Check the Partner Center
+- [TikTok Shop API Documentation](https://partner.tiktokshop.com/docv2/)
+- [API Signature Guide](https://partner.tiktokshop.com/docv2/page/sign-your-api-request)
+- [Order API Reference](https://partner.tiktokshop.com/docv2/page/get-order-list-202309)
 
----
+## License
 
-Built with ❤️ using Rust
+MIT

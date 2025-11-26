@@ -75,42 +75,48 @@ impl TikTokShopApiClient {
     }
 
     /// Generate HMAC-SHA256 signature for POST requests (includes request body)
+    ///
+    /// TikTok Shop signature format (from official docs):
+    /// sign_string = path + sorted_params_string + body
+    /// wrapped_string = app_secret + sign_string + app_secret
+    /// signature = HMAC-SHA256(app_secret, wrapped_string)
+    ///
+    /// NOTE: ALL query parameters except 'access_token' and 'sign' must be included in signature
     fn generate_signature_with_body(
         &self,
         path: &str,
         params: &BTreeMap<String, String>,
-        timestamp: i64,
-        access_token: Option<&str>,
-        shop_cipher: Option<&str>,
         body_json: &str,
     ) -> Result<String, AppError> {
-        // Build the base string for signing
-        let mut sign_string = String::new();
-        sign_string.push_str(&self.app_key);
-        sign_string.push_str(&timestamp.to_string());
-
-        if let Some(token) = access_token {
-            sign_string.push_str(token);
+        // Build params string from ALL query params (sorted alphabetically, excluding 'sign' and 'access_token')
+        // Params are already in BTreeMap so they're sorted
+        let mut params_string = String::new();
+        for (key, value) in params.iter() {
+            // Skip access_token and sign as per docs
+            if key == "access_token" || key == "sign" {
+                continue;
+            }
+            params_string.push_str(key);
+            params_string.push_str(value);
         }
 
-        if let Some(cipher) = shop_cipher {
-            sign_string.push_str(cipher);
-        }
+        // Build sign string: path + params + body (as per TikTok docs)
+        let sign_string = format!("{}{}{}", path, params_string, body_json);
 
-        sign_string.push_str(path);
+        // Wrap with app_secret: app_secret + sign_string + app_secret
+        let wrapped_string = format!("{}{}{}", self.app_secret, sign_string, self.app_secret);
 
-        // For POST requests, don't add query params - they're already in the prefix
-        // Only add the body
-        sign_string.push_str(body_json);
-
-        debug!("Sign string (with body): {}", sign_string);
+        debug!("Sign string: {}", sign_string);
+        debug!("Wrapped string: {}", wrapped_string);
 
         // Generate HMAC-SHA256 signature
         let mut mac = HmacSha256::new_from_slice(self.app_secret.as_bytes())
             .map_err(|e| AppError::SignatureError(e.to_string()))?;
-        mac.update(sign_string.as_bytes());
+        mac.update(wrapped_string.as_bytes());
         let result = mac.finalize();
         let signature = hex::encode(result.into_bytes());
+
+        debug!("Generated signature: {}", signature);
 
         Ok(signature)
     }
@@ -193,6 +199,7 @@ impl TikTokShopApiClient {
         access_token: Option<&str>,
         shop_cipher: Option<&str>,
         body: &B,
+        extra_params: Option<BTreeMap<String, String>>,
     ) -> Result<T, AppError> {
         let timestamp = chrono::Utc::now().timestamp();
 
@@ -213,8 +220,15 @@ impl TikTokShopApiClient {
             params.insert("shop_cipher".to_string(), cipher.to_string());
         }
 
-        // For POST requests, generate signature including the request body
-        let signature = self.generate_signature_with_body(path, &params, timestamp, access_token, shop_cipher, &body_json)?;
+        // Add any extra query parameters (e.g., page_size, shop_id, version)
+        if let Some(extra) = extra_params {
+            for (key, value) in extra {
+                params.insert(key, value);
+            }
+        }
+
+        // For POST requests, generate signature including ALL query params and the request body
+        let signature = self.generate_signature_with_body(path, &params, &body_json)?;
         params.insert("sign".to_string(), signature);
 
         let url = format!("{}{}", Self::API_BASE_URL, path);
@@ -230,7 +244,6 @@ impl TikTokShopApiClient {
             .query(&params)
             .header("Content-Type", "application/json");
 
-        // Add x-tts-access-token header if access token is provided
         if let Some(token) = access_token {
             request_builder = request_builder.header("x-tts-access-token", token);
         }
@@ -257,6 +270,7 @@ impl TikTokShopApiClient {
         }
 
         // Parse response
+        println!("{:?}", &response_body);
         let api_response: ApiResponse<T> = serde_json::from_str(&response_body)
             .map_err(|e| AppError::ParseError(format!("Failed to parse response: {}", e)))?;
 

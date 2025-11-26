@@ -5,9 +5,9 @@ use std::env;
 pub struct Config {
     pub app_key: String,
     pub app_secret: String,
-    pub redirect_uri: String,
-    pub host: String,
-    pub port: String,
+    pub shop_cipher: Option<String>,
+    pub shop_id: Option<String>,
+    pub token_file: String,
 }
 
 impl Config {
@@ -17,10 +17,10 @@ impl Config {
                 .map_err(|_| AppError::ConfigError("TIKTOK_APP_KEY not set".to_string()))?,
             app_secret: env::var("TIKTOK_APP_SECRET")
                 .map_err(|_| AppError::ConfigError("TIKTOK_APP_SECRET not set".to_string()))?,
-            redirect_uri: env::var("TIKTOK_REDIRECT_URI")
-                .unwrap_or_else(|_| "http://localhost:3000/auth/callback".to_string()),
-            host: env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
-            port: env::var("PORT").unwrap_or_else(|_| "3000".to_string()),
+            shop_cipher: env::var("TIKTOK_SHOP_CIPHER").ok(),
+            shop_id: env::var("TIKTOK_SHOP_ID").ok(),
+            token_file: env::var("TIKTOK_TOKEN_FILE")
+                .unwrap_or_else(|_| "token.json".to_string()),
         })
     }
 }

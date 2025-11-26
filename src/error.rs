@@ -8,9 +8,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
-    #[error("Invalid state parameter - possible CSRF attack")]
-    InvalidState,
-
     #[error("No token stored")]
     NoTokenStored,
 
@@ -37,12 +34,15 @@ pub enum AppError {
 
     #[error("Signature generation error: {0}")]
     SignatureError(String),
+
+    #[error("Internal server error")]
+    InternalServerError,
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {
-            AppError::InvalidState => (StatusCode::BAD_REQUEST, self.to_string()),
+            // AppError::InvalidState => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::NoTokenStored => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::InvalidUrl => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AppError::HttpError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
@@ -52,6 +52,7 @@ impl IntoResponse for AppError {
             AppError::ParseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AppError::ConfigError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AppError::SignatureError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            AppError::InternalServerError => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
 
         let body = Json(json!({

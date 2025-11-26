@@ -1,8 +1,8 @@
 use crate::error::AppError;
 use crate::requests::TikTokShopApiClient;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-/// Order management client
 pub struct OrderClient {
     api_client: TikTokShopApiClient,
 }
@@ -14,21 +14,56 @@ impl OrderClient {
         }
     }
 
-    /// Get order list with filtering and pagination
-    ///
-    /// API endpoint: /api/orders/search
-    /// Version: 202309
     pub async fn get_order_list(
         &self,
         access_token: &str,
         shop_cipher: Option<&str>,
+        shop_id: Option<&str>,
         request: GetOrderListRequest,
     ) -> Result<GetOrderListResponse, AppError> {
-        // Build request body
-        let body = GetOrderListRequestBody::from(request);
+        // Based on working cURL: body should be empty {}, all params in query string
+        let empty_body = serde_json::json!({});
 
+        // Build extra query parameters
+        let mut extra_params = BTreeMap::new();
+        extra_params.insert("version".to_string(), "202309".to_string());
+        
+        if let Some(id) = shop_id {
+            extra_params.insert("shop_id".to_string(), id.to_string());
+        }
+
+        // Add optional filter parameters to query string
+        if let Some(status) = request.order_status {
+            extra_params.insert("order_status".to_string(), status.as_code().to_string());
+        }
+        if let Some(ct_ge) = request.create_time_ge {
+            extra_params.insert("create_time_ge".to_string(), ct_ge.to_string());
+        }
+        if let Some(ct_lt) = request.create_time_lt {
+            extra_params.insert("create_time_lt".to_string(), ct_lt.to_string());
+        }
+        if let Some(ut_ge) = request.update_time_ge {
+            extra_params.insert("update_time_ge".to_string(), ut_ge.to_string());
+        }
+        if let Some(ut_lt) = request.update_time_lt {
+            extra_params.insert("update_time_lt".to_string(), ut_lt.to_string());
+        }
+        
+        extra_params.insert("page_size".to_string(), request.page_size.to_string());
+
+        if let Some(token) = request.page_token {
+            extra_params.insert("page_token".to_string(), token);
+        }
+        if let Some(field) = request.sort_field {
+            extra_params.insert("sort_field".to_string(), field);
+        }
+        if let Some(order) = request.sort_order {
+            extra_params.insert("sort_order".to_string(), order);
+        }
+
+        // V2 API endpoint: /order/202309/orders/search
         self.api_client
-            .post("/api/orders/search", Some(access_token), shop_cipher, &body)
+            .post("/order/202309/orders/search", Some(access_token), shop_cipher, &empty_body, Some(extra_params))
             .await
     }
 }
@@ -74,40 +109,14 @@ impl From<GetOrderListRequest> for GetOrderListRequestBody {
 /// Request parameters for getting order list
 #[derive(Debug, Clone, Default)]
 pub struct GetOrderListRequest {
-    /// Filter by order status
-    /// Possible values:
-    /// - 100: Unpaid
-    /// - 111: Awaiting shipment
-    /// - 112: Awaiting collection
-    /// - 114: Partially shipped
-    /// - 121: In transit
-    /// - 122: Delivered
-    /// - 130: Completed
-    /// - 140: Cancelled
     pub order_status: Option<OrderStatus>,
-
-    /// Filter by creation time (Unix timestamp) - greater than or equal
     pub create_time_ge: Option<i64>,
-
-    /// Filter by creation time (Unix timestamp) - less than
     pub create_time_lt: Option<i64>,
-
-    /// Filter by update time (Unix timestamp) - greater than or equal
     pub update_time_ge: Option<i64>,
-
-    /// Filter by update time (Unix timestamp) - less than
     pub update_time_lt: Option<i64>,
-
-    /// Number of orders to return per page (1-50, default: 10)
     pub page_size: i32,
-
-    /// Page token for pagination (from previous response)
     pub page_token: Option<String>,
-
-    /// Field to sort by (e.g., "create_time", "update_time")
     pub sort_field: Option<String>,
-
-    /// Sort order: "ASC" or "DESC"
     pub sort_order: Option<String>,
 }
 
@@ -153,24 +162,15 @@ impl GetOrderListRequest {
     }
 }
 
-/// Order status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderStatus {
-    /// 100: Unpaid
     Unpaid,
-    /// 111: Awaiting shipment
     AwaitingShipment,
-    /// 112: Awaiting collection
     AwaitingCollection,
-    /// 114: Partially shipped
     PartiallyShipped,
-    /// 121: In transit
     InTransit,
-    /// 122: Delivered
     Delivered,
-    /// 130: Completed
     Completed,
-    /// 140: Cancelled
     Cancelled,
 }
 
@@ -195,7 +195,6 @@ impl std::fmt::Display for OrderStatus {
     }
 }
 
-/// Sort order
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortOrder {
     Ascending,
@@ -211,214 +210,207 @@ impl std::fmt::Display for SortOrder {
     }
 }
 
-/// Response from get order list API
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetOrderListResponse {
-    /// List of orders
     pub orders: Vec<Order>,
-
-    /// Total number of orders matching the filter
+    #[serde(rename = "total_count")]
     pub total: i64,
-
-    /// Token for next page (if more results available)
     pub next_page_token: Option<String>,
-
-    /// Whether there are more pages
-    pub more: bool,
 }
 
-/// Order information
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Order {
-    /// Order ID
     pub id: String,
-
-    /// Order status code
-    pub status: i32,
-
-    /// Order creation time (Unix timestamp)
+    pub status: String,
     pub create_time: i64,
-
-    /// Order update time (Unix timestamp)
     pub update_time: i64,
-
-    /// Payment information
     #[serde(default)]
     pub payment: Option<PaymentInfo>,
-
-    /// Recipient information
     #[serde(default)]
     pub recipient_address: Option<RecipientAddress>,
-
-    /// Order items
-    #[serde(default)]
+    #[serde(rename = "line_items", default)]
     pub item_list: Vec<OrderItem>,
-
-    /// Buyer information
     #[serde(default)]
-    pub buyer: Option<BuyerInfo>,
-
-    /// Delivery information
-    #[serde(default)]
-    pub delivery: Option<DeliveryInfo>,
-
-    /// Split or combine status
-    #[serde(default)]
-    pub split_or_combine_tag: Option<i32>,
-
-    /// Fulfillment type
-    #[serde(default)]
-    pub fulfillment_type: Option<i32>,
-
-    /// Warehouse ID
+    pub fulfillment_type: Option<String>,
     #[serde(default)]
     pub warehouse_id: Option<String>,
-
-    /// Request cancel time
-    #[serde(default)]
-    pub request_cancel_time: Option<i64>,
-
-    /// Seller note
-    #[serde(default)]
-    pub seller_note: Option<String>,
-
-    /// Buyer message
     #[serde(default)]
     pub buyer_message: Option<String>,
-
-    /// Cancel order seller notes
     #[serde(default)]
-    pub cancel_order_sn: Option<String>,
-}
-
-/// Payment information
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct PaymentInfo {
-    /// Currency code (e.g., "USD", "GBP")
-    pub currency: String,
-
-    /// Total amount
-    pub total_amount: String,
-
-    /// Subtotal
-    pub sub_total: String,
-
-    /// Shipping fee
-    pub shipping_fee: String,
-
-    /// Seller discount
-    pub seller_discount: String,
-
-    /// Platform discount
-    pub platform_discount: String,
-
-    /// Tax
+    pub buyer_email: Option<String>,
     #[serde(default)]
-    pub tax: Option<String>,
-}
-
-/// Recipient address
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RecipientAddress {
-    /// Full address
+    pub cancel_order_sla_time: Option<i64>,
     #[serde(default)]
-    pub full_address: Option<String>,
-
-    /// Recipient name
+    pub cancel_reason: Option<String>,
     #[serde(default)]
-    pub name: Option<String>,
-
-    /// Phone number
+    pub cancel_time: Option<i64>,
     #[serde(default)]
-    pub phone: Option<String>,
-
-    /// Region code
+    pub cancellation_initiator: Option<String>,
     #[serde(default)]
-    pub region_code: Option<String>,
-
-    /// Postal code
+    pub collection_due_time: Option<i64>,
     #[serde(default)]
-    pub postal_code: Option<String>,
-}
-
-/// Order item
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct OrderItem {
-    /// Item ID
-    pub id: String,
-
-    /// Product ID
-    pub product_id: String,
-
-    /// Product name
-    pub product_name: String,
-
-    /// SKU ID
-    pub sku_id: String,
-
-    /// SKU name
-    #[serde(default)]
-    pub sku_name: Option<String>,
-
-    /// SKU image URL
-    #[serde(default)]
-    pub sku_image: Option<String>,
-
-    /// Quantity
-    pub quantity: i32,
-
-    /// Sale price
-    pub sale_price: String,
-
-    /// Original price
-    #[serde(default)]
-    pub original_price: Option<String>,
-
-    /// Seller SKU
-    #[serde(default)]
-    pub seller_sku: Option<String>,
-
-    /// Platform discount
-    #[serde(default)]
-    pub platform_discount: Option<String>,
-
-    /// Seller discount
-    #[serde(default)]
-    pub seller_discount: Option<String>,
-}
-
-/// Buyer information
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct BuyerInfo {
-    /// Buyer user ID (encrypted)
-    #[serde(default)]
-    pub id: Option<String>,
-
-    /// Buyer email (encrypted)
-    #[serde(default)]
-    pub email: Option<String>,
-}
-
-/// Delivery information
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct DeliveryInfo {
-    /// Delivery option ID
+    pub commerce_platform: Option<String>,
     #[serde(default)]
     pub delivery_option_id: Option<String>,
-
-    /// Delivery option name
     #[serde(default)]
     pub delivery_option_name: Option<String>,
-
-    /// Shipping provider ID
+    #[serde(default)]
+    pub delivery_type: Option<String>,
+    #[serde(default)]
+    pub has_updated_recipient_address: Option<bool>,
+    #[serde(default)]
+    pub is_cod: Option<bool>,
+    #[serde(default)]
+    pub is_on_hold_order: Option<bool>,
+    #[serde(default)]
+    pub is_replacement_order: Option<bool>,
+    #[serde(default)]
+    pub is_sample_order: Option<bool>,
+    #[serde(default)]
+    pub order_type: Option<String>,
+    #[serde(default)]
+    pub packages: Vec<Package>,
+    #[serde(default)]
+    pub paid_time: Option<i64>,
+    #[serde(default)]
+    pub payment_method_name: Option<String>,
+    #[serde(default)]
+    pub rts_sla_time: Option<i64>,
+    #[serde(default)]
+    pub rts_time: Option<i64>,
+    #[serde(default)]
+    pub shipping_due_time: Option<i64>,
+    #[serde(default)]
+    pub shipping_provider: Option<String>,
     #[serde(default)]
     pub shipping_provider_id: Option<String>,
+    #[serde(default)]
+    pub shipping_type: Option<String>,
+    #[serde(default)]
+    pub tracking_number: Option<String>,
+    #[serde(default)]
+    pub tts_sla_time: Option<i64>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub collection_time: Option<i64>,
+    #[serde(default)]
+    pub delivery_time: Option<i64>,
+}
 
-    /// Shipping provider name
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Package {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PaymentInfo {
+    pub currency: String,
+    pub total_amount: String,
+    pub sub_total: String,
+    pub shipping_fee: String,
+    pub seller_discount: String,
+    pub platform_discount: String,
+    #[serde(default)]
+    pub tax: Option<String>,
+    #[serde(default)]
+    pub original_shipping_fee: Option<String>,
+    #[serde(default)]
+    pub original_total_product_price: Option<String>,
+    #[serde(default)]
+    pub shipping_fee_cofunded_discount: Option<String>,
+    #[serde(default)]
+    pub shipping_fee_platform_discount: Option<String>,
+    #[serde(default)]
+    pub shipping_fee_seller_discount: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RecipientAddress {
+    #[serde(default)]
+    pub full_address: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "phone_number", default)]
+    pub phone: Option<String>,
+    #[serde(default)]
+    pub region_code: Option<String>,
+    #[serde(default)]
+    pub postal_code: Option<String>,
+    #[serde(default)]
+    pub address_detail: Option<String>,
+    #[serde(default)]
+    pub address_line1: Option<String>,
+    #[serde(default)]
+    pub address_line2: Option<String>,
+    #[serde(default)]
+    pub address_line3: Option<String>,
+    #[serde(default)]
+    pub address_line4: Option<String>,
+    #[serde(default)]
+    pub district_info: Vec<DistrictInfo>,
+    #[serde(default)]
+    pub first_name: Option<String>,
+    #[serde(default)]
+    pub last_name: Option<String>,
+    #[serde(default)]
+    pub first_name_local_script: Option<String>,
+    #[serde(default)]
+    pub last_name_local_script: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DistrictInfo {
+    pub address_level: String,
+    pub address_level_name: String,
+    pub address_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OrderItem {
+    pub id: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub sku_id: String,
+    #[serde(default)]
+    pub sku_name: Option<String>,
+    #[serde(default)]
+    pub sku_image: Option<String>,
+    #[serde(default)]
+    pub quantity: Option<i32>,
+    pub sale_price: String,
+    #[serde(default)]
+    pub original_price: Option<String>,
+    #[serde(default)]
+    pub seller_sku: Option<String>,
+    #[serde(default)]
+    pub platform_discount: Option<String>,
+    #[serde(default)]
+    pub seller_discount: Option<String>,
+    #[serde(default)]
+    pub cancel_reason: Option<String>,
+    #[serde(default)]
+    pub cancel_user: Option<String>,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default)]
+    pub display_status: Option<String>,
+    #[serde(default)]
+    pub gift_retail_price: Option<String>,
+    #[serde(default)]
+    pub is_gift: Option<bool>,
+    #[serde(default)]
+    pub package_id: Option<String>,
+    #[serde(default)]
+    pub package_status: Option<String>,
+    #[serde(default)]
+    pub rts_time: Option<i64>,
+    #[serde(default)]
+    pub shipping_provider_id: Option<String>,
     #[serde(default)]
     pub shipping_provider_name: Option<String>,
-
-    /// Tracking number
+    #[serde(default)]
+    pub sku_type: Option<String>,
     #[serde(default)]
     pub tracking_number: Option<String>,
 }
@@ -450,9 +442,9 @@ mod tests {
     #[test]
     fn test_page_size_limits() {
         let request = GetOrderListRequest::new().with_page_size(100);
-        assert_eq!(request.page_size, 50); // Should be capped at 50
+        assert_eq!(request.page_size, 50);
 
         let request = GetOrderListRequest::new().with_page_size(0);
-        assert_eq!(request.page_size, 1); // Should be minimum 1
+        assert_eq!(request.page_size, 1);
     }
 }
