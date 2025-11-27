@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.91-slim as builder
+FROM rust:1.91-slim AS builder
 
 WORKDIR /app
 
@@ -37,7 +37,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder
-COPY --from=builder /app/target/release/tiktok-shop-oauth /app/tiktok-shop-oauth
+COPY --from=builder /app/target/release/toptop-order /app/toptop-order
+
+COPY token.json /app/token.json
+COPY tiktok_tokens.json /app/tiktok_tokens.json
 
 # Expose port
 EXPOSE 3000
@@ -47,4 +50,4 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 
 # Run the application
-CMD ["/app/tiktok-shop-oauth"]
+CMD ["/app/toptop-order"]

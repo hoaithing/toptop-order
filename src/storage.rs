@@ -109,21 +109,21 @@ impl TokenStorage {
         Ok(())
     }
 
-    /// Check if access token is valid (not expired)
-    pub fn is_access_token_valid(&self) -> bool {
-        self.token
-            .as_ref()
-            .map(|t| t.expires_at > Utc::now())
-            .unwrap_or(false)
-    }
-
-    /// Check if refresh token is valid (not expired)
-    pub fn is_refresh_token_valid(&self) -> bool {
-        self.token
-            .as_ref()
-            .map(|t| t.refresh_token_expires_at > Utc::now())
-            .unwrap_or(false)
-    }
+    // /// Check if access token is valid (not expired)
+    // pub fn is_access_token_valid(&self) -> bool {
+    //     self.token
+    //         .as_ref()
+    //         .map(|t| t.expires_at > Utc::now())
+    //         .unwrap_or(false)
+    // }
+    //
+    // /// Check if refresh token is valid (not expired)
+    // pub fn is_refresh_token_valid(&self) -> bool {
+    //     self.token
+    //         .as_ref()
+    //         .map(|t| t.refresh_token_expires_at > Utc::now())
+    //         .unwrap_or(false)
+    // }
 
     /// Reload token from file (useful if file was updated externally)
     pub fn reload(&mut self) -> Result<(), AppError> {

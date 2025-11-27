@@ -4,11 +4,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
-use tiktok_shop_order::config::Config;
-use tiktok_shop_order::database::Database;
-use tiktok_shop_order::oauth::TikTokShopOAuth;
-use tiktok_shop_order::order::{GetOrderListRequest, OrderClient};
-use tiktok_shop_order::storage::{TokenInfo, TokenStorage};
+use toptop_order::config::Config;
+use toptop_order::database::Database;
+use toptop_order::oauth::TikTokShopOAuth;
+use toptop_order::order::{GetOrderListRequest, OrderClient};
+use toptop_order::storage::{TokenInfo, TokenStorage};
 
 #[derive(Clone)]
 struct AppState {
@@ -47,11 +47,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if token_info.expires_at < chrono::Utc::now() {
                 info!("Access token expired. Refreshing...");
 
-                // Check if refresh token is still valid
                 if token_info.refresh_token_expires_at < chrono::Utc::now() {
                     info!("Refresh token expired. Please authorize again.");
                 } else {
-                    // Drop read lock before refreshing
                     let refresh_token = token_info.refresh_token.clone();
                     drop(storage);
 
@@ -63,7 +61,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     info!("Token refreshed successfully");
 
-                    // Create new token info with refreshed data
                     let new_token_info = TokenInfo {
                         access_token: token_response.access_token,
                         refresh_token: token_response.refresh_token,
@@ -73,7 +70,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .expect("Failed to parse refresh token expire time"),
                     };
 
-                    // Store the new token info
                     let mut storage = token_storage.write().await;
                     storage.store(new_token_info)
                         .expect("Failed to store refreshed token");
