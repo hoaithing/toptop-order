@@ -6,6 +6,7 @@ use tracing::{error, info};
 
 use toptop_order::config::Config;
 use toptop_order::database::Database;
+use toptop_order::error::AppError;
 use toptop_order::oauth::TikTokShopOAuth;
 use toptop_order::order::{GetOrderListRequest, OrderClient};
 use toptop_order::storage::{TokenInfo, TokenStorage};
@@ -13,6 +14,46 @@ use toptop_order::storage::{TokenInfo, TokenStorage};
 #[derive(Clone)]
 struct AppState {
     db: Arc<Database>,
+}
+
+/// Helper function to check and refresh token if expired
+async fn check_and_refresh_token(
+    token_info: &TokenInfo,
+    oauth_client: &TikTokShopOAuth,
+) -> Result<TokenInfo, AppError> {
+    // Check if access token is expired
+    if token_info.expires_at >= chrono::Utc::now() {
+        // Token is still valid
+        return Ok(token_info.clone());
+    }
+
+    info!("Access token expired. Attempting to refresh...");
+
+    // Check if refresh token is still valid
+    if token_info.refresh_token_expires_at < chrono::Utc::now() {
+        return Err(AppError::ConfigError(
+            "Refresh token expired. Please re-authorize the app.".to_string()
+        ));
+    }
+
+    // Refresh the token
+    let token_response = oauth_client
+        .refresh_access_token(&token_info.refresh_token)
+        .await?;
+
+    info!("Successfully refreshed access token");
+
+    // Create new token info with refreshed data
+    let new_token_info = TokenInfo {
+        access_token: token_response.access_token,
+        refresh_token: token_response.refresh_token,
+        expires_at: DateTime::from_timestamp(token_response.access_token_expire_in, 0)
+            .unwrap_or_else(|| chrono::Utc::now() + chrono::Duration::hours(12)),
+        refresh_token_expires_at: DateTime::from_timestamp(token_response.refresh_token_expire_in, 0)
+            .unwrap_or_else(|| chrono::Utc::now() + chrono::Duration::days(30)),
+    };
+
+    Ok(new_token_info)
 }
 
 #[tokio::main]
@@ -43,40 +84,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             info!("Token expires at: {}", token_info.expires_at);
 
-            // Check if access token expired
-            if token_info.expires_at < chrono::Utc::now() {
-                info!("Access token expired. Refreshing...");
-
-                if token_info.refresh_token_expires_at < chrono::Utc::now() {
-                    info!("Refresh token expired. Please authorize again.");
-                } else {
-                    let refresh_token = token_info.refresh_token.clone();
-                    drop(storage);
-
-                    // Refresh the token
-                    let token_response = oauth_client
-                        .refresh_access_token(&refresh_token)
-                        .await
-                        .expect("Failed to refresh token");
-
-                    info!("Token refreshed successfully");
-
-                    let new_token_info = TokenInfo {
-                        access_token: token_response.access_token,
-                        refresh_token: token_response.refresh_token,
-                        expires_at: DateTime::from_timestamp(token_response.access_token_expire_in, 0)
-                            .expect("Failed to parse access token expire time"),
-                        refresh_token_expires_at: DateTime::from_timestamp(token_response.refresh_token_expire_in, 0)
-                            .expect("Failed to parse refresh token expire time"),
-                    };
-
-                    let mut storage = token_storage.write().await;
-                    storage.store(new_token_info)
-                        .expect("Failed to store refreshed token");
-                    info!("Refreshed token saved to file");
+            // Use helper function to check and refresh token
+            match check_and_refresh_token(token_info, &oauth_client).await {
+                Ok(refreshed_token) => {
+                    // Check if token was actually refreshed (not just validated)
+                    if refreshed_token.access_token != token_info.access_token {
+                        // Token was refreshed, save it
+                        drop(storage);
+                        let mut storage = token_storage.write().await;
+                        storage.store(refreshed_token)
+                            .expect("Failed to store refreshed token");
+                        info!("Refreshed token saved to file");
+                    }
                 }
-            } else if token_info.refresh_token_expires_at < chrono::Utc::now() {
-                info!("Refresh token expired. Please authorize again.");
+                Err(e) => {
+                    error!("Token refresh failed: {}", e);
+                    info!("Please re-authorize the app if needed");
+                }
             }
         } else {
             info!("No saved token found. Please authorize via /auth/tiktok");
@@ -149,6 +173,9 @@ async fn get_orders_handler(
 async fn sync_orders_background_task(db: Arc<Database>, config: Config) {
     info!("Starting background order sync task (runs every hour)");
 
+    // Create OAuth client for token refresh
+    let oauth_client = TikTokShopOAuth::new(config.app_key.clone(), config.app_secret.clone());
+
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 1 hour
 
     loop {
@@ -157,20 +184,37 @@ async fn sync_orders_background_task(db: Arc<Database>, config: Config) {
         info!("Running order sync...");
 
         // Read token from file
-        let token_storage = TokenStorage::new();
-        let token_info = match token_storage.get() {
-            Some(token) => token,
+        let mut token_storage = TokenStorage::new();
+        let token_info_original = match token_storage.get() {
+            Some(token) => token.clone(),
             None => {
                 error!("No token found, skipping sync");
                 continue;
             }
         };
 
-        // Check if token is valid
-        if token_info.expires_at < chrono::Utc::now() {
-            error!("Access token expired, skipping sync. Please refresh token.");
-            continue;
-        }
+        // Use helper function to check and refresh token
+        let token_info = match check_and_refresh_token(&token_info_original, &oauth_client).await {
+            Ok(refreshed_token) => {
+                // Check if token was actually refreshed
+                if refreshed_token.access_token != token_info_original.access_token {
+                    // Token was refreshed, save it
+                    match token_storage.store(refreshed_token.clone()) {
+                        Ok(_) => {
+                            info!("Refreshed token saved to file");
+                        }
+                        Err(e) => {
+                            error!("Failed to save refreshed token: {}", e);
+                        }
+                    }
+                }
+                refreshed_token
+            }
+            Err(e) => {
+                error!("Failed to check/refresh token: {}", e);
+                continue;
+            }
+        };
 
         // Create order client
         let order_client = OrderClient::new(
