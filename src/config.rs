@@ -8,6 +8,7 @@ pub struct Config {
     pub shop_cipher: Option<String>,
     pub shop_id: Option<String>,
     pub token_file: String,
+    pub database_path: String,
 }
 
 impl Config {
@@ -21,6 +22,8 @@ impl Config {
             shop_id: env::var("TIKTOK_SHOP_ID").ok(),
             token_file: env::var("TIKTOK_TOKEN_FILE")
                 .unwrap_or_else(|_| "token.json".to_string()),
+            database_path: env::var("DATABASE_PATH")
+                .unwrap_or_else(|_| "orders.db".to_string()),
         })
     }
 }

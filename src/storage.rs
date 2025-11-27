@@ -13,6 +13,20 @@ pub struct TokenInfo {
     pub refresh_token_expires_at: DateTime<Utc>,
 }
 
+impl TokenInfo {
+    pub fn new(access_token: String,
+               refresh_token: String,
+               expires_at: DateTime<Utc>,
+               refresh_token_expires_at: DateTime<Utc>) -> Self {
+        Self {
+            access_token,
+            refresh_token,
+            expires_at,
+            refresh_token_expires_at,
+        }
+    }
+}
+
 pub struct TokenStorage {
     token: Option<TokenInfo>,
     storage_path: PathBuf,

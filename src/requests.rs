@@ -269,8 +269,7 @@ impl TikTokShopApiClient {
             )));
         }
 
-        // Parse response
-        println!("{:?}", &response_body);
+        // Parse response;
         let api_response: ApiResponse<T> = serde_json::from_str(&response_body)
             .map_err(|e| AppError::ParseError(format!("Failed to parse response: {}", e)))?;
 

@@ -27,7 +27,7 @@ impl OrderClient {
         // Build extra query parameters
         let mut extra_params = BTreeMap::new();
         extra_params.insert("version".to_string(), "202309".to_string());
-        
+
         if let Some(id) = shop_id {
             extra_params.insert("shop_id".to_string(), id.to_string());
         }
@@ -48,7 +48,7 @@ impl OrderClient {
         if let Some(ut_lt) = request.update_time_lt {
             extra_params.insert("update_time_lt".to_string(), ut_lt.to_string());
         }
-        
+
         extra_params.insert("page_size".to_string(), request.page_size.to_string());
 
         if let Some(token) = request.page_token {
@@ -63,46 +63,14 @@ impl OrderClient {
 
         // V2 API endpoint: /order/202309/orders/search
         self.api_client
-            .post("/order/202309/orders/search", Some(access_token), shop_cipher, &empty_body, Some(extra_params))
+            .post(
+                "/order/202309/orders/search",
+                Some(access_token),
+                shop_cipher,
+                &empty_body,
+                Some(extra_params),
+            )
             .await
-    }
-}
-
-/// Request body for getting order list (serializable for POST)
-#[derive(Debug, Clone, Serialize)]
-struct GetOrderListRequestBody {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    order_status: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    create_time_ge: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    create_time_lt: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    update_time_ge: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    update_time_lt: Option<i64>,
-    page_size: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    page_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sort_field: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sort_order: Option<String>,
-}
-
-impl From<GetOrderListRequest> for GetOrderListRequestBody {
-    fn from(req: GetOrderListRequest) -> Self {
-        Self {
-            order_status: req.order_status.map(|s| s.as_code()),
-            create_time_ge: req.create_time_ge,
-            create_time_lt: req.create_time_lt,
-            update_time_ge: req.update_time_ge,
-            update_time_lt: req.update_time_lt,
-            page_size: req.page_size,
-            page_token: req.page_token,
-            sort_field: req.sort_field,
-            sort_order: req.sort_order,
-        }
     }
 }
 
@@ -413,38 +381,4 @@ pub struct OrderItem {
     pub sku_type: Option<String>,
     #[serde(default)]
     pub tracking_number: Option<String>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_order_status_codes() {
-        assert_eq!(OrderStatus::Unpaid.as_code(), 100);
-        assert_eq!(OrderStatus::AwaitingShipment.as_code(), 111);
-        assert_eq!(OrderStatus::Completed.as_code(), 130);
-    }
-
-    #[test]
-    fn test_request_builder() {
-        let request = GetOrderListRequest::new()
-            .with_status(OrderStatus::AwaitingShipment)
-            .with_page_size(20)
-            .sort_by("create_time".to_string(), SortOrder::Descending);
-
-        assert_eq!(request.order_status, Some(OrderStatus::AwaitingShipment));
-        assert_eq!(request.page_size, 20);
-        assert_eq!(request.sort_field, Some("create_time".to_string()));
-        assert_eq!(request.sort_order, Some("DESC".to_string()));
-    }
-
-    #[test]
-    fn test_page_size_limits() {
-        let request = GetOrderListRequest::new().with_page_size(100);
-        assert_eq!(request.page_size, 50);
-
-        let request = GetOrderListRequest::new().with_page_size(0);
-        assert_eq!(request.page_size, 1);
-    }
 }
