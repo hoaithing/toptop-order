@@ -26,3 +26,4 @@ hex = "0.4"
 # Database
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 tokio-rusqlite = "0.7.0"
+log = "0.4.28"

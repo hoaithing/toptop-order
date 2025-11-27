@@ -1421,6 +1421,7 @@ dependencies = [
  "dotenvy",
  "hex",
  "hmac",
+ "log",
  "reqwest",
  "rusqlite",
  "serde",
