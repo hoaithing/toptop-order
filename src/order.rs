@@ -114,7 +114,7 @@ impl GetOrderListRequest {
     }
 
     pub fn with_page_size(mut self, size: i32) -> Self {
-        self.page_size = size.min(50).max(1);
+        self.page_size = size.clamp(1, 50);
         self
     }
 

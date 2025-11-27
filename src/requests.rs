@@ -9,7 +9,6 @@ use tracing::debug;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// TikTok Shop API client with request signing
 #[derive(Clone)]
 pub struct TikTokShopApiClient {
     app_key: String,
@@ -17,7 +16,6 @@ pub struct TikTokShopApiClient {
     http_client: Client,
 }
 
-/// Common API response wrapper
 #[derive(Debug, Deserialize)]
 pub struct ApiResponse<T> {
     pub code: i32,
@@ -74,22 +72,12 @@ impl TikTokShopApiClient {
         Ok(signature)
     }
 
-    /// Generate HMAC-SHA256 signature for POST requests (includes request body)
-    ///
-    /// TikTok Shop signature format (from official docs):
-    /// sign_string = path + sorted_params_string + body
-    /// wrapped_string = app_secret + sign_string + app_secret
-    /// signature = HMAC-SHA256(app_secret, wrapped_string)
-    ///
-    /// NOTE: ALL query parameters except 'access_token' and 'sign' must be included in signature
     fn generate_signature_with_body(
         &self,
         path: &str,
         params: &BTreeMap<String, String>,
         body_json: &str,
     ) -> Result<String, AppError> {
-        // Build params string from ALL query params (sorted alphabetically, excluding 'sign' and 'access_token')
-        // Params are already in BTreeMap so they're sorted
         let mut params_string = String::new();
         for (key, value) in params.iter() {
             // Skip access_token and sign as per docs
@@ -100,16 +88,12 @@ impl TikTokShopApiClient {
             params_string.push_str(value);
         }
 
-        // Build sign string: path + params + body (as per TikTok docs)
         let sign_string = format!("{}{}{}", path, params_string, body_json);
-
-        // Wrap with app_secret: app_secret + sign_string + app_secret
         let wrapped_string = format!("{}{}{}", self.app_secret, sign_string, self.app_secret);
 
         debug!("Sign string: {}", sign_string);
         debug!("Wrapped string: {}", wrapped_string);
 
-        // Generate HMAC-SHA256 signature
         let mut mac = HmacSha256::new_from_slice(self.app_secret.as_bytes())
             .map_err(|e| AppError::SignatureError(e.to_string()))?;
         mac.update(wrapped_string.as_bytes());
