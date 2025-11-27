@@ -2,6 +2,7 @@ use hmac::{Hmac, Mac};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::BTreeMap;
+use std::env;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -55,7 +56,6 @@ impl Default for WowEsimApiClient {
 
 impl WowEsimApiClient {
     // const API_BASE_URL: &'static str = "https://api.wowesim.com/";
-    const API_BASE_URL: &'static str = "http://localhost:9000/";
 
     /// Create a new WowEsimApiClient with the given secret
     pub fn new(wow_secret: String) -> Self {
@@ -114,7 +114,8 @@ impl WowEsimApiClient {
             data: body,
         };
 
-        let url = format!("{}{}", Self::API_BASE_URL, path);
+        let api_base_url = env::var("WOW_API_BASE_URL").expect("WOW_API_BASE_URL env var not set");
+        let url = format!("{}{}", api_base_url, path);
         println!("Making POST request to: {}", url);
         println!("Request body: {:?}", &signature_body);
 

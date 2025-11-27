@@ -4,11 +4,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
-use tiktok_shop_oauth::config::Config;
-use tiktok_shop_oauth::database::Database;
-use tiktok_shop_oauth::oauth::TikTokShopOAuth;
-use tiktok_shop_oauth::order::{GetOrderListRequest, OrderClient};
-use tiktok_shop_oauth::storage::{TokenInfo, TokenStorage};
+use tiktok_shop_order::config::Config;
+use tiktok_shop_order::database::Database;
+use tiktok_shop_order::oauth::TikTokShopOAuth;
+use tiktok_shop_order::order::{GetOrderListRequest, OrderClient};
+use tiktok_shop_order::storage::{TokenInfo, TokenStorage};
 
 #[derive(Clone)]
 struct AppState {
